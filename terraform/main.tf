@@ -71,12 +71,12 @@ resource "aws_iam_role_policy_attachment" "rekognition_attach" {
 
 # Lambda function for processing images
 resource "aws_lambda_function" "rekognition_processor" {
-  filename      = "rekognition_processor.zip"
+  filename      = "./files/rekognition_processor.zip"
   function_name = "rekognition-image-processor"
   role          = aws_iam_role.lambda_exec_role.arn
   handler       = "index.handler"
-  runtime       = "python3.8"
-  timeout       = 30
+  runtime       = "python3.12"
+  timeout       = 60
 
   environment {
     variables = {
