@@ -6,10 +6,6 @@ variable "handler" {}
 variable "runtime" {}
 variable "s3_bucket" {}
 variable "s3_key" {}
-variable "code_signing_config_arn" {}
-variable "layers" {
-    type = list(string)
-}
 variable "env_variables" {
   type = map(string)
 }

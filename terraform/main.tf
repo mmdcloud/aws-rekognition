@@ -92,7 +92,7 @@ module "lambda_function_iam_role" {
 module "rekognition_processor" {
   source        = "./modules/lambda"
   function_name = "rekognition-image-processor"
-  role_arn      = module.carshub_media_update_function_iam_role.arn
+  role_arn      = module.lambda_function_iam_role.arn
   permissions   = [
     {
       statement_id  = "AllowExecutionFromS3Bucket"
@@ -109,8 +109,39 @@ module "rekognition_processor" {
   runtime                 = "python3.12"
   s3_bucket               = module.carshub_media_update_function_code.bucket
   s3_key                  = "lambda.zip"
-  layers                  = [aws_lambda_layer_version.python_layer.arn]
-  code_signing_config_arn = module.carshub_signing_profile.config_arn
+}
+
+module "rekognition_bucket" {
+  source      = "./modules/s3"
+  bucket_name = "rekognition-bucket-${random_id.bucket_suffix.hex}"
+  objects = []
+  versioning_enabled = "Enabled"
+  cors = [
+    {
+      allowed_headers = ["${module.carshub_media_cloudfront_distribution.domain_name}"]
+      allowed_methods = ["GET"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    },
+    {
+      allowed_headers = ["${module.carshub_frontend_lb.lb_dns_name}"]
+      allowed_methods = ["PUT"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    }
+  ]
+  bucket_policy = ""
+  force_destroy = false
+  bucket_notification = {
+    queue = []
+    lambda_function = [
+      {
+        lambda_function_arn = aws_lambda_function.rekognition_processor.arn
+        events              = ["s3:ObjectCreated:*"]
+        filter_prefix       = "images/"
+      }
+    ]
+  }
 }
 
 # Create S3 bucket for storing images
