@@ -1,72 +1,124 @@
+# Rekognition Role
+module "rekognition_iam_role" {
+  source             = "./modules/iam"
+  role_name          = "rekognition_iam_role"
+  role_description   = "rekognition_iam_role"
+  policy_name        = "rekognition_iam_policy"
+  policy_description = "rekognition_iam_policy"
+  assume_role_policy = <<EOF
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": ""
+                "Action": "sts:AssumeRole",
+                "Principal": {
+                  "Service": "rekognition.amazonaws.com"
+                },
+                "Effect": "Allow"
+            }
+        ]
+    }
+    EOF
+  policy             = <<EOF
+    {
+      "Effect" : "Allow"
+      "Action" : [
+        "rekognition:DetectLabels",
+        "rekognition:DetectFaces",
+        "rekognition:RecognizeCelebrities",
+        "rekognition:DetectText",
+        "rekognition:DetectModerationLabels"
+      ]
+      "Resource" : "*"
+    },
+    {
+      "Effect" : "Allow"
+      "Action" : [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ]
+      "Resource" : [
+        aws_s3_bucket.rekognition_demo_bucket.arn,
+        "${aws_s3_bucket.rekognition_demo_bucket.arn}/*"
+      ]
+    }
+    EOF
+}
+
+# Lambda function Role
+module "lambda_function_iam_role" {
+  source             = "./modules/iam"
+  role_name          = "lambda_function_iam_role"
+  role_description   = "lambda_function_iam_role"
+  policy_name        = "lambda_function_iam_policy"
+  policy_description = "lambda_function_iam_policy"
+  assume_role_policy = <<EOF
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": ""
+                "Action": "sts:AssumeRole",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                },
+                "Effect": "Allow"
+            }
+        ]
+    }
+    EOF
+  policy             = <<EOF
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Action": [
+                  "rekognition:*",
+                  "logs:CreateLogGroup",
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents",
+                  "s3:GetObject",
+                  "s3:ListBucket"
+                ],
+                "Resource": "arn:aws:logs:*:*:*",
+                "Effect": "Allow"
+            }
+        ]
+    }
+    EOF
+}
+
+module "rekognition_processor" {
+  source        = "./modules/lambda"
+  function_name = "rekognition-image-processor"
+  role_arn      = module.carshub_media_update_function_iam_role.arn
+  permissions   = [
+    {
+      statement_id  = "AllowExecutionFromS3Bucket"
+      action        = "lambda:InvokeFunction"
+      function_name = aws_lambda_function.rekognition_processor.arn
+      principal     = "s3.amazonaws.com"
+      source_arn    = aws_s3_bucket.rekognition_demo_bucket.arn
+    }
+  ]
+  env_variables = {
+    BUCKET_NAME = aws_s3_bucket.rekognition_demo_bucket.bucket
+  }
+  handler                 = "index.handler"
+  runtime                 = "python3.12"
+  s3_bucket               = module.carshub_media_update_function_code.bucket
+  s3_key                  = "lambda.zip"
+  layers                  = [aws_lambda_layer_version.python_layer.arn]
+  code_signing_config_arn = module.carshub_signing_profile.config_arn
+}
+
 # Create S3 bucket for storing images
 resource "aws_s3_bucket" "rekognition_demo_bucket" {
   bucket = "rekognition-demo-bucket-${random_id.bucket_suffix.hex}"
   tags = {
     Name = "Rekognition Demo Bucket"
   }
-}
-
-# Random suffix for bucket name
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
-}
-
-# IAM role for Rekognition
-resource "aws_iam_role" "rekognition_role" {
-  name = "rekognition-demo-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "rekognition.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-# IAM policy for Rekognition
-resource "aws_iam_policy" "rekognition_policy" {
-  name        = "rekognition-demo-policy"
-  description = "Policy for AWS Rekognition demo"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "rekognition:DetectLabels",
-          "rekognition:DetectFaces",
-          "rekognition:RecognizeCelebrities",
-          "rekognition:DetectText",
-          "rekognition:DetectModerationLabels"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          aws_s3_bucket.rekognition_demo_bucket.arn,
-          "${aws_s3_bucket.rekognition_demo_bucket.arn}/*"
-        ]
-      }
-    ]
-  })
-}
-
-# Attach policy to role
-resource "aws_iam_role_policy_attachment" "rekognition_attach" {
-  role       = aws_iam_role.rekognition_role.name
-  policy_arn = aws_iam_policy.rekognition_policy.arn
 }
 
 # Lambda function for processing images
@@ -83,53 +135,6 @@ resource "aws_lambda_function" "rekognition_processor" {
       BUCKET_NAME = aws_s3_bucket.rekognition_demo_bucket.bucket
     }
   }
-}
-
-# IAM role for Lambda
-resource "aws_iam_role" "lambda_exec_role" {
-  name = "lambda-rekognition-exec-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-# Lambda execution policy
-resource "aws_iam_policy" "lambda_exec_policy" {
-  name        = "lambda-rekognition-exec-policy"
-  description = "Policy for Lambda to call Rekognition"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "rekognition:*",
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          "s3:GetObject",
-          "s3:ListBucket"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "lambda_exec_attach" {
-  role       = aws_iam_role.lambda_exec_role.name
-  policy_arn = aws_iam_policy.lambda_exec_policy.arn
 }
 
 # S3 event trigger for Lambda
